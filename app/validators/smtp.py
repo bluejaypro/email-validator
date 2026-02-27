@@ -1,3 +1,4 @@
+import asyncio
 import smtplib
 
 import dns.resolver
@@ -81,3 +82,8 @@ def check_smtp(email: str) -> dict:
             "passed": None,
             "message": "SMTP check unavailable",
         }
+
+
+async def check_smtp_async(email: str) -> dict:
+    """Async version - runs blocking SMTP conversation in a thread."""
+    return await asyncio.to_thread(check_smtp, email)

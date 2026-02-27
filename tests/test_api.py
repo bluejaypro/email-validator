@@ -1,8 +1,19 @@
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 from app.main import app
 
 client = TestClient(app)
+
+_mock_result = {
+    "email": "test@example.com",
+    "is_valid": True,
+    "score": 1.0,
+    "verdict": "valid",
+    "suggestion": None,
+    "checks": [
+        {"name": "syntax", "label": "Syntax", "passed": True, "message": "ok"}
+    ],
+}
 
 
 def test_root_returns_html():
@@ -11,18 +22,9 @@ def test_root_returns_html():
     assert "text/html" in response.headers["content-type"]
 
 
-@patch("app.api.routes.validate_email")
+@patch("app.api.routes.validate_email_async", new_callable=AsyncMock)
 def test_validate_single(mock_validate):
-    mock_validate.return_value = {
-        "email": "test@example.com",
-        "is_valid": True,
-        "score": 1.0,
-        "verdict": "valid",
-        "suggestion": None,
-        "checks": [
-            {"name": "syntax", "label": "Syntax", "passed": True, "message": "ok"}
-        ],
-    }
+    mock_validate.return_value = _mock_result
 
     response = client.post("/api/validate", json={"email": "test@example.com"})
     assert response.status_code == 200
@@ -31,16 +33,9 @@ def test_validate_single(mock_validate):
     assert data["verdict"] == "valid"
 
 
-@patch("app.api.routes.validate_email")
-def test_validate_bulk(mock_validate):
-    mock_validate.return_value = {
-        "email": "test@example.com",
-        "is_valid": True,
-        "score": 1.0,
-        "verdict": "valid",
-        "suggestion": None,
-        "checks": [],
-    }
+@patch("app.api.routes.validate_bulk_async", new_callable=AsyncMock)
+def test_validate_bulk(mock_bulk):
+    mock_bulk.return_value = [_mock_result, _mock_result]
 
     response = client.post(
         "/api/validate/bulk",
@@ -49,6 +44,20 @@ def test_validate_bulk(mock_validate):
     assert response.status_code == 200
     data = response.json()
     assert data["total"] == 2
+
+
+@patch("app.api.routes.validate_bulk_async", new_callable=AsyncMock)
+def test_validate_bulk_upload(mock_bulk):
+    mock_bulk.return_value = [_mock_result]
+
+    content = b"test@example.com\nother@example.com\n"
+    response = client.post(
+        "/api/validate/bulk/upload",
+        files={"file": ("emails.txt", content, "text/plain")},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] >= 1
 
 
 def test_validate_empty_email():

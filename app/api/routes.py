@@ -10,7 +10,7 @@ from app.api.schemas import (
     BulkValidationResult,
 )
 from app.config import MAX_BULK_EMAILS
-from app.validators.pipeline import validate_email
+from app.validators.pipeline import validate_email, validate_email_async, validate_bulk_async
 
 router = APIRouter()
 
@@ -18,13 +18,13 @@ router = APIRouter()
 @router.post("/validate", response_model=ValidationResult)
 async def validate_single(request: EmailRequest):
     """Validate a single email address."""
-    result = validate_email(request.email)
+    result = await validate_email_async(request.email)
     return result
 
 
 @router.post("/validate/bulk", response_model=BulkValidationResult)
 async def validate_bulk(request: BulkEmailRequest):
-    """Validate multiple email addresses."""
+    """Validate multiple email addresses concurrently."""
     emails = [e.strip() for e in request.emails if e.strip()]
 
     if len(emails) > MAX_BULK_EMAILS:
@@ -33,7 +33,7 @@ async def validate_bulk(request: BulkEmailRequest):
             detail=f"Maximum {MAX_BULK_EMAILS} emails per request",
         )
 
-    results = [validate_email(email) for email in emails]
+    results = await validate_bulk_async(emails)
     return _build_bulk_response(results)
 
 
@@ -60,7 +60,7 @@ async def validate_upload(file: UploadFile = File(...)):
             detail=f"Maximum {MAX_BULK_EMAILS} emails per request",
         )
 
-    results = [validate_email(email) for email in emails]
+    results = await validate_bulk_async(emails)
     return _build_bulk_response(results)
 
 

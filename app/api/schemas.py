@@ -6,7 +6,7 @@ class EmailRequest(BaseModel):
 
 
 class BulkEmailRequest(BaseModel):
-    emails: list[str] = Field(..., min_length=1, max_length=500)
+    emails: list[str] = Field(..., min_length=1, max_length=5000)
 
 
 class CheckResult(BaseModel):

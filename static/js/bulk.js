@@ -1,5 +1,7 @@
-// Bulk email validation
+// Bulk email validation with chunked processing for large lists
 (function () {
+    const CHUNK_SIZE = 5000;
+
     const form = document.getElementById("bulk-form");
     const textarea = document.getElementById("bulk-input");
     const fileInput = document.getElementById("file-input");
@@ -28,7 +30,6 @@
     form.addEventListener("submit", async (e) => {
         e.preventDefault();
 
-        // Prefer file upload over textarea
         if (selectedFile) {
             await validateFile(selectedFile);
         } else {
@@ -41,28 +42,49 @@
                 .split(/[\n,;]+/)
                 .map((e) => e.trim())
                 .filter((e) => e);
-            await validateBulk(emails);
+            await validateBulkChunked(emails);
         }
     });
 
-    async function validateBulk(emails) {
+    async function validateBulkChunked(emails) {
         setLoading(btn, true);
         resultArea.innerHTML = "";
 
-        try {
-            const res = await fetch("/api/validate/bulk", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ emails }),
-            });
+        // Split into chunks for large lists
+        const chunks = [];
+        for (let i = 0; i < emails.length; i += CHUNK_SIZE) {
+            chunks.push(emails.slice(i, i + CHUNK_SIZE));
+        }
 
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.detail || "Bulk validation failed");
+        // Show progress for multi-chunk processing
+        if (chunks.length > 1) {
+            resultArea.innerHTML = renderProgress(0, chunks.length, emails.length);
+        }
+
+        const allResults = [];
+        try {
+            for (let i = 0; i < chunks.length; i++) {
+                const res = await fetch("/api/validate/bulk", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ emails: chunks[i] }),
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || "Bulk validation failed");
+                }
+
+                const data = await res.json();
+                allResults.push(...data.results);
+
+                if (chunks.length > 1) {
+                    resultArea.innerHTML = renderProgress(i + 1, chunks.length, emails.length);
+                }
             }
 
-            const data = await res.json();
-            resultArea.innerHTML = renderBulkResult(data);
+            const merged = mergeBulkResults(allResults);
+            resultArea.innerHTML = renderBulkResult(merged);
             bindBulkInteractions();
         } catch (err) {
             resultArea.innerHTML = renderError(err.message);
@@ -102,6 +124,30 @@
         }
     }
 
+    function mergeBulkResults(results) {
+        const valid = results.filter((r) => r.verdict === "valid").length;
+        const invalid = results.filter((r) => r.verdict === "invalid").length;
+        const warnings = results.filter((r) => r.verdict === "warning").length;
+        const unknown = results.filter((r) => r.verdict === "unknown").length;
+        return { total: results.length, valid, invalid, warnings, unknown, results };
+    }
+
+    function renderProgress(done, total, emailCount) {
+        const pct = Math.round((done / total) * 100);
+        return `<div class="result-card unknown">
+            <div class="verdict">
+                <span class="verdict-label unknown">Processing ${emailCount.toLocaleString()} emails...</span>
+                <span class="score-badge unknown">Batch ${done}/${total}</span>
+            </div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" style="width: ${pct}%"></div>
+            </div>
+            <p style="color: var(--text-muted); font-size: 13px; margin-top: 8px;">
+                ${(done * CHUNK_SIZE > emailCount ? emailCount : done * CHUNK_SIZE).toLocaleString()} of ${emailCount.toLocaleString()} emails processed
+            </p>
+        </div>`;
+    }
+
     function renderBulkResult(data) {
         let html = `<div class="bulk-summary">`;
         html += renderStat("Total", data.total, "total");
@@ -126,7 +172,7 @@
 
     function renderStat(label, count, cls) {
         return `<div class="summary-stat ${cls}">
-            <span class="count">${count}</span>
+            <span class="count">${count.toLocaleString()}</span>
             <span class="label">${label}</span>
         </div>`;
     }

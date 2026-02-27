@@ -1,3 +1,4 @@
+import asyncio
 import json
 import socket
 
@@ -51,3 +52,8 @@ def check_domain(email: str) -> dict:
             "passed": False,
             "message": f"Domain '{domain}' does not exist",
         }
+
+
+async def check_domain_async(email: str) -> dict:
+    """Async version - runs blocking DNS lookup in a thread."""
+    return await asyncio.to_thread(check_domain, email)

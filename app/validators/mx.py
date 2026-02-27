@@ -1,3 +1,5 @@
+import asyncio
+
 import dns.resolver
 
 from app.config import DNS_TIMEOUT
@@ -44,3 +46,8 @@ def check_mx(email: str) -> dict:
         "passed": False,
         "message": "No mail server found for this domain",
     }
+
+
+async def check_mx_async(email: str) -> dict:
+    """Async version - runs blocking DNS lookup in a thread."""
+    return await asyncio.to_thread(check_mx, email)
