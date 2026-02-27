@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Validator</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <main>
+        <header>
+            <h1>Email Validator</h1>
+            <p class="subtitle">Verify email addresses instantly</p>
+        </header>
+
+        <!-- Tabs -->
+        <div class="tabs" role="tablist" aria-label="Validation mode">
+            <button class="tab active" role="tab" id="tab-single"
+                    aria-selected="true" aria-controls="panel-single"
+                    data-tab="single">Single Email</button>
+            <button class="tab" role="tab" id="tab-bulk"
+                    aria-selected="false" aria-controls="panel-bulk"
+                    data-tab="bulk">Bulk Validation</button>
+        </div>
+
+        <!-- Single Email Panel -->
+        <section class="panel active" id="panel-single" role="tabpanel" aria-labelledby="tab-single">
+            <form id="single-form" novalidate>
+                <div class="input-group">
+                    <input type="email" id="email-input"
+                           placeholder="Enter email address..."
+                           aria-label="Email address"
+                           autocomplete="email" autofocus>
+                    <button type="submit" id="validate-btn" aria-label="Validate email">
+                        <span class="btn-text">Validate</span>
+                        <span class="spinner" aria-hidden="true"></span>
+                    </button>
+                </div>
+            </form>
+            <div id="single-result" class="result-area" aria-live="polite" aria-atomic="true"></div>
+        </section>
+
+        <!-- Bulk Panel -->
+        <section class="panel" id="panel-bulk" role="tabpanel" aria-labelledby="tab-bulk" hidden>
+            <form id="bulk-form" novalidate>
+                <textarea id="bulk-input"
+                          placeholder="Paste email addresses (one per line)..."
+                          rows="6"
+                          aria-label="Email addresses, one per line"></textarea>
+                <div class="bulk-actions">
+                    <label class="file-upload" tabindex="0" role="button" aria-label="Upload CSV or TXT file">
+                        <input type="file" id="file-input" accept=".csv,.txt" hidden>
+                        Upload CSV/TXT
+                    </label>
+                    <span id="file-name" class="file-name"></span>
+                    <button type="submit" id="bulk-validate-btn" aria-label="Validate all emails">
+                        <span class="btn-text">Validate All</span>
+                        <span class="spinner" aria-hidden="true"></span>
+                    </button>
+                </div>
+            </form>
+            <div id="bulk-result" class="result-area" aria-live="polite" aria-atomic="true"></div>
+        </section>
+
+        <footer>
+            <p>Checks: syntax, disposable, role-based, domain, MX record, and SMTP verification</p>
+        </footer>
+    </main>
+
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/validator.js"></script>
+    <script src="/static/js/bulk.js"></script>
+</body>
+</html>
