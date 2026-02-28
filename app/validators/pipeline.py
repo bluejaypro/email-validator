@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from app.config import CONCURRENT_WORKERS
 from app.validators.syntax import check_syntax
@@ -8,6 +9,8 @@ from app.validators.domain import check_domain, check_domain_async
 from app.validators.mx import check_mx, check_mx_async
 from app.validators.smtp import check_smtp, check_smtp_async
 
+logger = logging.getLogger("email_validator.pipeline")
+
 
 def validate_email(email: str) -> dict:
     """Run the full validation pipeline on a single email address (sync)."""
@@ -15,21 +18,17 @@ def validate_email(email: str) -> dict:
     checks = []
     suggestion = None
 
-    # Step 1: Syntax
     syntax_result = check_syntax(email)
     checks.append(syntax_result)
     if not syntax_result["passed"]:
         return _build_result(email, checks, score=0.0, verdict="invalid")
 
-    # Step 2: Disposable
     disp_result = check_disposable(email)
     checks.append(disp_result)
 
-    # Step 3: Role-based
     role_result = check_role_based(email)
     checks.append(role_result)
 
-    # Step 4: Domain (+ typo detection)
     domain_result = check_domain(email)
     checks.append(domain_result)
     if "suggestion" in domain_result:
@@ -39,18 +38,15 @@ def validate_email(email: str) -> dict:
         verdict = "warning" if suggestion else "invalid"
         return _build_result(email, checks, score=score, verdict=verdict, suggestion=suggestion)
 
-    # Step 5: MX Record
     mx_result = check_mx(email)
     checks.append(mx_result)
     if not mx_result["passed"]:
         return _build_result(email, checks, score=0.1, verdict="invalid")
 
-    # Step 6: SMTP Verification
     smtp_result = check_smtp(email)
     checks.append(smtp_result)
 
-    # Compute final score and verdict
-    score, verdict = _compute_score(checks, disp_result, role_result, smtp_result)
+    score, verdict = _compute_score(disp_result, role_result, smtp_result)
     return _build_result(email, checks, score=score, verdict=verdict, suggestion=suggestion)
 
 
@@ -65,7 +61,7 @@ async def validate_email_async(email: str) -> dict:
     checks = []
     suggestion = None
 
-    # Step 1-3: Fast local checks (instant, no I/O)
+    # Fast local checks (instant, no I/O)
     syntax_result = check_syntax(email)
     checks.append(syntax_result)
     if not syntax_result["passed"]:
@@ -77,7 +73,7 @@ async def validate_email_async(email: str) -> dict:
     role_result = check_role_based(email)
     checks.append(role_result)
 
-    # Step 4: Domain check (network I/O - async)
+    # Network I/O checks (async)
     domain_result = await check_domain_async(email)
     checks.append(domain_result)
     if "suggestion" in domain_result:
@@ -87,17 +83,15 @@ async def validate_email_async(email: str) -> dict:
         verdict = "warning" if suggestion else "invalid"
         return _build_result(email, checks, score=score, verdict=verdict, suggestion=suggestion)
 
-    # Step 5: MX Record (network I/O - async)
     mx_result = await check_mx_async(email)
     checks.append(mx_result)
     if not mx_result["passed"]:
         return _build_result(email, checks, score=0.1, verdict="invalid")
 
-    # Step 6: SMTP Verification (network I/O - async)
     smtp_result = await check_smtp_async(email)
     checks.append(smtp_result)
 
-    score, verdict = _compute_score(checks, disp_result, role_result, smtp_result)
+    score, verdict = _compute_score(disp_result, role_result, smtp_result)
     return _build_result(email, checks, score=score, verdict=verdict, suggestion=suggestion)
 
 
@@ -105,7 +99,7 @@ async def validate_bulk_async(emails: list[str]) -> list[dict]:
     """Validate a list of emails concurrently with rate limiting.
 
     Uses a semaphore to limit concurrent network operations to
-    CONCURRENT_WORKERS (default 50) to avoid overwhelming DNS/SMTP servers.
+    CONCURRENT_WORKERS to avoid overwhelming DNS/SMTP servers.
     """
     semaphore = asyncio.Semaphore(CONCURRENT_WORKERS)
 
@@ -113,11 +107,16 @@ async def validate_bulk_async(emails: list[str]) -> list[dict]:
         async with semaphore:
             return await validate_email_async(email)
 
+    logger.info("Starting bulk validation: %d emails, %d workers", len(emails), CONCURRENT_WORKERS)
     tasks = [_limited(email) for email in emails]
-    return await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks)
+    logger.info("Bulk validation complete: %d emails processed", len(results))
+    return list(results)
 
 
-def _compute_score(checks, disp_result, role_result, smtp_result):
+def _compute_score(
+    disp_result: dict, role_result: dict, smtp_result: dict
+) -> tuple[float, str]:
     if not disp_result["passed"]:
         return 0.4, "warning"
     if not role_result["passed"]:
@@ -131,7 +130,13 @@ def _compute_score(checks, disp_result, role_result, smtp_result):
     return 0.2, "invalid"
 
 
-def _build_result(email, checks, score, verdict, suggestion=None):
+def _build_result(
+    email: str,
+    checks: list[dict],
+    score: float,
+    verdict: str,
+    suggestion: str | None = None,
+) -> dict:
     return {
         "email": email,
         "is_valid": verdict == "valid",

@@ -1,9 +1,12 @@
 import asyncio
+import logging
 import smtplib
 
 import dns.resolver
 
 from app.config import SMTP_FROM_ADDRESS, SMTP_TIMEOUT, DNS_TIMEOUT
+
+logger = logging.getLogger("email_validator.smtp")
 
 
 def check_smtp(email: str) -> dict:
@@ -17,6 +20,7 @@ def check_smtp(email: str) -> dict:
         records = resolver.resolve(domain, "MX")
         mx_host = str(records[0].exchange).rstrip(".")
     except Exception:
+        logger.debug("SMTP: could not resolve MX for %s", domain)
         return {
             "name": "smtp",
             "label": "SMTP Verification",
@@ -47,6 +51,7 @@ def check_smtp(email: str) -> dict:
                 "message": "Mailbox does not exist",
             }
         else:
+            logger.info("SMTP inconclusive for %s: code %d", email, code)
             return {
                 "name": "smtp",
                 "label": "SMTP Verification",
@@ -55,6 +60,7 @@ def check_smtp(email: str) -> dict:
             }
 
     except smtplib.SMTPConnectError:
+        logger.warning("SMTP connect failed for %s via %s", email, mx_host)
         return {
             "name": "smtp",
             "label": "SMTP Verification",
@@ -62,20 +68,23 @@ def check_smtp(email: str) -> dict:
             "message": "Could not connect to mail server",
         }
     except smtplib.SMTPServerDisconnected:
+        logger.warning("SMTP server disconnected for %s", email)
         return {
             "name": "smtp",
             "label": "SMTP Verification",
             "passed": None,
             "message": "Mail server disconnected",
         }
-    except TimeoutError:
+    except (TimeoutError, OSError):
+        logger.warning("SMTP timeout for %s via %s", email, mx_host)
         return {
             "name": "smtp",
             "label": "SMTP Verification",
             "passed": None,
             "message": "Connection timed out",
         }
-    except Exception:
+    except smtplib.SMTPException:
+        logger.warning("SMTP error for %s", email, exc_info=True)
         return {
             "name": "smtp",
             "label": "SMTP Verification",

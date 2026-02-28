@@ -1,8 +1,11 @@
 import asyncio
 import json
+import logging
 import socket
 
 from app.config import DATA_DIR, DNS_TIMEOUT
+
+logger = logging.getLogger("email_validator.domain")
 
 _typo_map: dict | None = None
 
@@ -11,8 +14,13 @@ def _load_typo_map() -> dict:
     global _typo_map
     if _typo_map is None:
         path = DATA_DIR / "domain_typos.json"
-        with open(path) as f:
-            _typo_map = json.load(f)
+        try:
+            with open(path) as f:
+                _typo_map = json.load(f)
+            logger.info("Loaded %d domain typo corrections", len(_typo_map))
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logger.error("Failed to load domain typos: %s", e)
+            _typo_map = {}
     return _typo_map
 
 
@@ -51,6 +59,14 @@ def check_domain(email: str) -> dict:
             "label": "Domain Check",
             "passed": False,
             "message": f"Domain '{domain}' does not exist",
+        }
+    except socket.timeout:
+        logger.warning("Domain lookup timed out for %s", domain)
+        return {
+            "name": "domain",
+            "label": "Domain Check",
+            "passed": False,
+            "message": "Domain lookup timed out",
         }
 
 

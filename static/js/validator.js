@@ -1,3 +1,6 @@
+// Request timeout (30 seconds)
+const REQUEST_TIMEOUT_MS = 30000;
+
 // Single email validation
 (function () {
     const form = document.getElementById("single-form");
@@ -17,18 +20,12 @@
         resultArea.innerHTML = "";
 
         try {
-            const res = await fetch("/api/validate", {
+            const data = await fetchWithTimeout("/api/validate", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email }),
             });
 
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.detail || "Validation failed");
-            }
-
-            const data = await res.json();
             resultArea.innerHTML = renderResultCard(data);
             bindSuggestion(resultArea, input);
         } catch (err) {
@@ -38,17 +35,51 @@
         }
     });
 
-    function bindSuggestion(container, input) {
+    function bindSuggestion(container, emailInput) {
         const link = container.querySelector(".suggestion-link");
         if (link) {
             link.addEventListener("click", (e) => {
                 e.preventDefault();
-                input.value = link.dataset.email;
+                emailInput.value = link.dataset.email;
                 form.dispatchEvent(new Event("submit"));
             });
         }
     }
 })();
+
+// Shared utility: fetch with timeout and error handling
+async function fetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs || REQUEST_TIMEOUT_MS);
+
+    try {
+        const res = await fetch(url, { ...options, signal: controller.signal });
+
+        if (res.status === 429) {
+            throw new Error("Rate limit exceeded. Please wait a moment and try again.");
+        }
+
+        if (!res.ok) {
+            let detail = `Server error (${res.status})`;
+            try {
+                const err = await res.json();
+                detail = err.detail || detail;
+            } catch {
+                // Response wasn't JSON
+            }
+            throw new Error(detail);
+        }
+
+        return await res.json();
+    } catch (err) {
+        if (err.name === "AbortError") {
+            throw new Error("Request timed out. The server may be busy.");
+        }
+        throw err;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
 
 // Shared rendering functions
 function setLoading(btn, loading) {
@@ -64,16 +95,16 @@ function renderResultCard(data) {
         unknown: "Unknown",
     };
 
-    let html = `<div class="result-card ${data.verdict}">`;
+    let html = `<div class="result-card ${escapeAttr(data.verdict)}">`;
     html += `<div class="verdict">`;
-    html += `<span class="verdict-label ${data.verdict}">${verdictLabels[data.verdict]}</span>`;
-    html += `<span class="score-badge ${data.verdict}">Score: ${Math.round(data.score * 100)}%</span>`;
+    html += `<span class="verdict-label ${escapeAttr(data.verdict)}">${escapeHtml(verdictLabels[data.verdict] || "Unknown")}</span>`;
+    html += `<span class="score-badge ${escapeAttr(data.verdict)}">Score: ${Math.round(data.score * 100)}%</span>`;
     html += `</div>`;
 
     if (data.suggestion) {
         html += `<div class="suggestion">`;
         html += `<span>Did you mean </span>`;
-        html += `<a class="suggestion-link" href="#" data-email="${escapeHtml(data.suggestion)}">${escapeHtml(data.suggestion)}</a>?`;
+        html += `<a class="suggestion-link" href="#" data-email="${escapeAttr(data.suggestion)}">${escapeHtml(data.suggestion)}</a>?`;
         html += `</div>`;
     }
 
@@ -106,6 +137,12 @@ function renderError(message) {
 
 function escapeHtml(str) {
     const div = document.createElement("div");
-    div.textContent = str;
+    div.textContent = String(str);
     return div.innerHTML;
+}
+
+function escapeAttr(str) {
+    return String(str).replace(/[&"'<>]/g, (c) => ({
+        "&": "&amp;", '"': "&quot;", "'": "&#39;", "<": "&lt;", ">": "&gt;",
+    })[c]);
 }

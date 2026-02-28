@@ -1,8 +1,11 @@
 import asyncio
+import logging
 
 import dns.resolver
 
 from app.config import DNS_TIMEOUT
+
+logger = logging.getLogger("email_validator.mx")
 
 
 def check_mx(email: str) -> dict:
@@ -25,12 +28,13 @@ def check_mx(email: str) -> dict:
             }
 
     except dns.resolver.NoAnswer:
-        pass
+        logger.debug("No MX answer for %s", domain)
     except dns.resolver.NXDOMAIN:
-        pass
+        logger.debug("NXDOMAIN for %s", domain)
     except dns.resolver.NoNameservers:
-        pass
+        logger.warning("No nameservers for %s", domain)
     except dns.resolver.LifetimeTimeout:
+        logger.warning("MX lookup timed out for %s", domain)
         return {
             "name": "mx",
             "label": "MX Record",
@@ -38,7 +42,7 @@ def check_mx(email: str) -> dict:
             "message": "DNS lookup timed out",
         }
     except Exception:
-        pass
+        logger.exception("Unexpected MX lookup error for %s", domain)
 
     return {
         "name": "mx",

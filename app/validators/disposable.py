@@ -1,4 +1,8 @@
+import logging
+
 from app.config import DATA_DIR
+
+logger = logging.getLogger("email_validator.disposable")
 
 _disposable_domains: frozenset | None = None
 
@@ -7,10 +11,15 @@ def _load_domains() -> frozenset:
     global _disposable_domains
     if _disposable_domains is None:
         path = DATA_DIR / "disposable_domains.txt"
-        with open(path) as f:
-            _disposable_domains = frozenset(
-                line.strip().lower() for line in f if line.strip()
-            )
+        try:
+            with open(path) as f:
+                _disposable_domains = frozenset(
+                    line.strip().lower() for line in f if line.strip()
+                )
+            logger.info("Loaded %d disposable domains", len(_disposable_domains))
+        except FileNotFoundError:
+            logger.error("Disposable domains file not found: %s", path)
+            _disposable_domains = frozenset()
     return _disposable_domains
 
 

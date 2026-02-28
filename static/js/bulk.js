@@ -1,6 +1,7 @@
 // Bulk email validation with chunked processing for large lists
 (function () {
     const CHUNK_SIZE = 5000;
+    const BULK_TIMEOUT_MS = 120000; // 2 min per chunk
 
     const form = document.getElementById("bulk-form");
     const textarea = document.getElementById("bulk-input");
@@ -50,13 +51,11 @@
         setLoading(btn, true);
         resultArea.innerHTML = "";
 
-        // Split into chunks for large lists
         const chunks = [];
         for (let i = 0; i < emails.length; i += CHUNK_SIZE) {
             chunks.push(emails.slice(i, i + CHUNK_SIZE));
         }
 
-        // Show progress for multi-chunk processing
         if (chunks.length > 1) {
             resultArea.innerHTML = renderProgress(0, chunks.length, emails.length);
         }
@@ -64,18 +63,16 @@
         const allResults = [];
         try {
             for (let i = 0; i < chunks.length; i++) {
-                const res = await fetch("/api/validate/bulk", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ emails: chunks[i] }),
-                });
+                const data = await fetchWithTimeout(
+                    "/api/validate/bulk",
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ emails: chunks[i] }),
+                    },
+                    BULK_TIMEOUT_MS
+                );
 
-                if (!res.ok) {
-                    const err = await res.json();
-                    throw new Error(err.detail || "Bulk validation failed");
-                }
-
-                const data = await res.json();
                 allResults.push(...data.results);
 
                 if (chunks.length > 1) {
@@ -101,17 +98,12 @@
             const formData = new FormData();
             formData.append("file", file);
 
-            const res = await fetch("/api/validate/bulk/upload", {
-                method: "POST",
-                body: formData,
-            });
+            const data = await fetchWithTimeout(
+                "/api/validate/bulk/upload",
+                { method: "POST", body: formData },
+                BULK_TIMEOUT_MS
+            );
 
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.detail || "File validation failed");
-            }
-
-            const data = await res.json();
             resultArea.innerHTML = renderBulkResult(data);
             bindBulkInteractions();
         } catch (err) {
@@ -162,10 +154,14 @@
         }
         html += `</div>`;
 
-        html += `<button class="export-btn" onclick="exportCSV()" aria-label="Export results as CSV">Export CSV</button>`;
+        html += `<button class="export-btn" id="export-csv-btn" aria-label="Export results as CSV">Export CSV</button>`;
 
-        // Store data for export
+        // Store data for export and bind click
         window._bulkResults = data;
+        setTimeout(() => {
+            const exportBtn = document.getElementById("export-csv-btn");
+            if (exportBtn) exportBtn.addEventListener("click", exportCSV);
+        }, 0);
 
         return html;
     }
@@ -173,7 +169,7 @@
     function renderStat(label, count, cls) {
         return `<div class="summary-stat ${cls}">
             <span class="count">${count.toLocaleString()}</span>
-            <span class="label">${label}</span>
+            <span class="label">${escapeHtml(label)}</span>
         </div>`;
     }
 
@@ -181,7 +177,7 @@
         let html = `<div class="bulk-item">`;
         html += `<button class="bulk-item-header" aria-expanded="false">`;
         html += `<span class="bulk-item-email">${escapeHtml(result.email)}</span>`;
-        html += `<span class="bulk-item-verdict ${result.verdict}">${result.verdict}</span>`;
+        html += `<span class="bulk-item-verdict ${escapeAttr(result.verdict)}">${escapeHtml(result.verdict)}</span>`;
         html += `<span class="bulk-item-expand" aria-hidden="true">&#9660;</span>`;
         html += `</button>`;
 
@@ -215,18 +211,22 @@
     }
 })();
 
-// CSV export (global so inline onclick works)
+// CSV export with proper field escaping
 function exportCSV() {
     const data = window._bulkResults;
     if (!data) return;
 
-    let csv = "Email,Verdict,Score,Details\n";
+    const rows = [["Email", "Verdict", "Score", "Details"]];
     for (const r of data.results) {
         const details = r.checks.map((c) => `${c.label}: ${c.message}`).join("; ");
-        csv += `"${r.email}","${r.verdict}",${r.score},"${details}"\n`;
+        rows.push([r.email, r.verdict, String(r.score), details]);
     }
 
-    const blob = new Blob([csv], { type: "text/csv" });
+    const csv = rows
+        .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+        .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

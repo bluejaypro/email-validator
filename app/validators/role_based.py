@@ -1,4 +1,8 @@
+import logging
+
 from app.config import DATA_DIR
+
+logger = logging.getLogger("email_validator.role_based")
 
 _role_prefixes: frozenset | None = None
 
@@ -7,10 +11,15 @@ def _load_prefixes() -> frozenset:
     global _role_prefixes
     if _role_prefixes is None:
         path = DATA_DIR / "role_prefixes.txt"
-        with open(path) as f:
-            _role_prefixes = frozenset(
-                line.strip().lower() for line in f if line.strip()
-            )
+        try:
+            with open(path) as f:
+                _role_prefixes = frozenset(
+                    line.strip().lower() for line in f if line.strip()
+                )
+            logger.info("Loaded %d role-based prefixes", len(_role_prefixes))
+        except FileNotFoundError:
+            logger.error("Role prefixes file not found: %s", path)
+            _role_prefixes = frozenset()
     return _role_prefixes
 
 
